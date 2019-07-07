@@ -41,7 +41,7 @@ public class Checker implements Watcher{
     public void startZK() throws IOException, SQLException, ClassNotFoundException {
         zk = new ZooKeeper(hostPort, 15000, this);
         Class.forName("com.mysql.jdbc.Driver");
-        db_connection = DriverManager.getConnection(hostPort, "root", "Crash#mysql123");
+        db_connection = DriverManager.getConnection(mysql_hostPort, "root", "Crash#mysql123");
         db_connection.setTransactionIsolation(Connection.TRANSACTION_READ_COMMITTED);
         db_connection.setAutoCommit(false);  // Turn on Transaction
     }

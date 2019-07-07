@@ -34,7 +34,7 @@
 
 * Checker.java
 
-  （收银员）负责处理一条订单，实现了Zookeeper的`Watcher`接口，即`process(...)`。
+  （收银员）负责处理一条订单~~，实现了Zookeeper的`Watcher`接口，即`process(...)~~`。
 
   * 连接Zookeeper
     * 在Zookeeper上锁定某些商品(比如`create /commodity/<commodity id>`获取对应id商品的锁)

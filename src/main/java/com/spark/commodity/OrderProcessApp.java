@@ -25,6 +25,10 @@ import java.sql.DriverManager;
 import org.apache.zookeeper.*;
 
 
+/**
+ * @argv param1 param2 param3
+ *  param1:
+ */
 public class OrderProcessApp {
     public static void main(String[] argv) throws Exception {
         // configure Kafka
@@ -44,19 +48,25 @@ public class OrderProcessApp {
         JavaInputDStream<ConsumerRecord<Integer, String>> input = KafkaUtils.createDirectStream(
                 ssc, LocationStrategies.PreferConsistent(), ConsumerStrategies.Subscribe(topics, kafkaParams));
 
-        // TODO: database name?
-        Connection channel = DriverManager.getConnection("jdbc:mysql://127.0.0.1:3306/commodity", "root", "Crash#mysql123");
+        String hostPort = "master:2181,worker1:2181,worker2:2181,worker3:2181";  // Zookeeper cluster
+        // TODO: MySQL database?
+        String mysqlJdbc = "jdbc:mysql//master:3306/<database>"; // MysQL config
         // Transform order
         // TODO: process order
         JavaDStream<Tuple2<Integer, Order>> orders = input.map(record ->
                 new Tuple2<Integer, Order>(record.key(), JSON.parseObject(record.value(), Order.class)));
         orders.map(order -> {
             // TODO:
-            String hostPort = "master:2181,worker1:2181,worker2:2181,worker3:2181";
-            ZooKeeper zk = new ZooKeeper(hostPort, 15000, NULL);
+            Checker checker = new Checker(hostPort, mysqlJdbc);
+            try {
+                checker.startZK();
+            }
+            catch ()
+            checker.check(order._1, order._2);
             return null;
         });
-        orders.print();
+        // TODO: Remove in the future
+        orders.print(); // for DEBUG
 
         ssc.start();
         ssc.awaitTermination();

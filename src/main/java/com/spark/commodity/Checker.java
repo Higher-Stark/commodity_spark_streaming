@@ -25,7 +25,10 @@ import static org.apache.zookeeper.ZooDefs.Ids.OPEN_ACL_UNSAFE;
  * to process each order
  */
 public class Checker implements Watcher{
-    public final Integer GOOD_NOT_FOUND = -1;
+    public final Integer ORDER_SUCCEED = 0;
+    public final Integer ORDER_FAILED = -1;
+    public final Integer SQL_EXCEPTION = -2;
+
 
     private ZooKeeper zk;
     private String hostPort;   // ZooKeeper cluster config
@@ -50,39 +53,106 @@ public class Checker implements Watcher{
         System.out.println(e);
     }
 
-    public int check(Integer rid, Order order) {
+    private void notifySpring(String rid, String new_id) {
+        //TODO: update ZK node <rid> using value <new_id>
+    }
+
+    private String insertResult(String user_id, String initiator, Integer success, Float totalPaid) throws SQLException{
+        Statement smt = db_connection.createStatement();
+        ResultSet rs;
+        String new_id;
+
+        String sql = "SELECT MAX(CONVERT(id, SIGNED)) AS id FROM result";
+        rs = smt.executeQuery(sql);
+
+        if (rs.wasNull())
+            new_id = "1";
+        else
+            new_id = String.valueOf(rs.getInt("id") + 1);
+        System.out.println("table <result> new id: " + new_id);
+
+        sql = "INSERT INTO result values(" +
+                new_id + ", " + user_id + ", " + initiator + ", " + success + ", " + totalPaid +
+                ")";
+        smt.execute(sql);
+        return new_id;
+    }
+
+    public int check(String rid, Order order) {
         Collections.sort(order.items);
-        // TODO: SQL
-        String sql;
+        Float totalPaid = Float.valueOf(0);   //订单总价
+        Boolean committed = false;
+        String sql, new_id = "";
         try {
             Statement smt = db_connection.createStatement();
             ResultSet rs;
 
             // 暂时存储每个商品的余量
             Map<String, Integer> storage = new HashMap<>();
-            for (Item i: order.items) {
+            for (Item i : order.items) {
                 sql = "SELECT * FROM commodity WHERE id = " + i.id + " ORDER BY id ASC";
                 rs = smt.executeQuery(sql);
 
                 // Good is not found, cancel the order
                 if (rs.wasNull()) {
                     System.out.println("Good with id " + i.id + " not found, order cancel!");
-                    db_connection.rollback();
+                    db_connection.rollback(); // withdraw previous modification
+                    new_id = insertResult(order.user_id, order.initiator, 0, Float.valueOf(0));
+                    db_connection.commit();
+                    committed = true;
                     db_connection.close();
-                    return GOOD_NOT_FOUND;
+                    notifySpring(rid, new_id);
+                    return ORDER_FAILED;
                 }
 
                 Integer remain = rs.getInt("inventory");
-                if (remain >= i.number) {
+                Float price = rs.getFloat("price");
+                // Good is not enough, cancel the order
+                if (remain < i.number) {
+                    System.out.println("Good with id " + i.id + " not enough, required " + i.number + ", left " + remain + ". Order cancel!");
+                    db_connection.rollback(); // withdraw previous modification
+                    new_id = insertResult(order.user_id, order.initiator, 0, Float.valueOf(0));
+                    db_connection.commit();
+                    committed = true;
+                    db_connection.close();
+                    notifySpring(rid, new_id);
+                    return ORDER_FAILED;
+                } else {
                     remain -= i.number;
                     sql = "UPDATE commodity SET inventory = " + remain + " WHERE id = " + i.id;
                     smt.executeUpdate(sql);
+                    totalPaid += i.number * price;
                 }
             }
-
-        } catch (SQLException e) {
+            // Successfully processed all the goods in the order, commit
+            new_id = insertResult(order.user_id, order.initiator, 1, totalPaid);
+            db_connection.commit();
+            committed = true;
+            db_connection.close();
+            notifySpring(rid, new_id);
+            return ORDER_SUCCEED;
+        }
+        catch (SQLException e) {// exception occurs, cancel the order
             System.err.println(e.getMessage());
             e.printStackTrace();
+            try{
+                if (!committed){// To deal with SQL exception happened before commit succeeds
+                    db_connection.rollback();
+                    new_id = insertResult(order.user_id, order.initiator, 0, Float.valueOf(0));
+                    db_connection.commit();
+                    notifySpring(rid, new_id);
+                    db_connection.close();
+                    return ORDER_FAILED;
+                }
+                else {
+                    notifySpring(rid, new_id); // To deal with SQL exception happened while closing connection
+                    return ORDER_SUCCEED;
+                }
+            }
+            catch (SQLException e1) {
+                e1.printStackTrace();
+                return SQL_EXCEPTION;
+            }
         }
     }
 }

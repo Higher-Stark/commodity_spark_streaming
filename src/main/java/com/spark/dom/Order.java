@@ -4,7 +4,7 @@ import java.sql.Timestamp;
 import java.util.ArrayList;
 
 public class Order {
-    public int user_id;
+    public String user_id;
     public String initiator;
     public Timestamp time;
     public ArrayList<Item> items;

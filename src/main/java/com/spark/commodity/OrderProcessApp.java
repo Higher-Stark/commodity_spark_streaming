@@ -39,36 +39,49 @@ public class OrderProcessApp {
         kafkaParams.put("group.id", "1");
         kafkaParams.put("auto.offset.reset", "latest");
         kafkaParams.put("enable.auto.commit", false);
-        Set<String> topics = new HashSet<String>(Arrays.asList("order"));
+
+        Set<String> topics = new HashSet<String>(Arrays.asList("test20180430"));
+
+        // Configure mysql and zookeeper
+        String zkPorts = "0.0.0.0:2181,192.168.18.144:2181";  // Zookeeper cluster
+        // TODO: MySQL database?
+        String mysqlJdbc = "jdbc:mysql//0.0.0.0:3386/<database>"; // MysQL config, using SSH channel
 
         // Setup Spark Driver
         SparkConf conf = new SparkConf().setAppName("CommodityApp").setMaster("localhost:9001");
-        JavaStreamingContext ssc = new JavaStreamingContext(conf, new Duration(1000));
-        // Get input stream from Kafka
-        JavaInputDStream<ConsumerRecord<Integer, String>> input = KafkaUtils.createDirectStream(
-                ssc, LocationStrategies.PreferConsistent(), ConsumerStrategies.Subscribe(topics, kafkaParams));
+        JavaStreamingContext jssc = new JavaStreamingContext(conf, new Duration(1000));
+        jssc.checkpoint("/streaming_checkpoint");
 
-        String hostPort = "master:2181,worker1:2181,worker2:2181,worker3:2181";  // Zookeeper cluster
-        // TODO: MySQL database?
-        String mysqlJdbc = "jdbc:mysql//master:3306/<database>"; // MysQL config
+        // Get input stream from Kafka
+        JavaInputDStream<ConsumerRecord<String, String>> input =
+                KafkaUtils.createDirectStream(
+                        jssc,
+                        LocationStrategies.PreferConsistent(),
+                        ConsumerStrategies.<String, String>Subscribe(topics, kafkaParams));
+
         // Transform order
         // TODO: process order
-        JavaDStream<Tuple2<Integer, Order>> orders = input.map(record ->
-                new Tuple2<Integer, Order>(record.key(), JSON.parseObject(record.value(), Order.class)));
+        JavaDStream<Tuple2<String, Order>> orders = input.map(record ->
+                new Tuple2<String, Order>(record.key(), JSON.parseObject(record.value(), Order.class)));
         orders.map(order -> {
             // TODO:
-            Checker checker = new Checker(hostPort, mysqlJdbc);
-            try {
+            Checker checker = new Checker(zkPorts, mysqlJdbc);
+            try{
                 checker.startZK();
+            } catch (Exception e){
+                System.err.println(e.getMessage());
+                e.printStackTrace();
             }
-            catch ()
-            checker.check(order._1, order._2);
+            Integer r = checker.check(order._1, order._2);
+            if (r < 0){
+                System.err.println("Error happens in check for order: " + order._1 + ", error code: "+ r);
+            }
             return null;
         });
         // TODO: Remove in the future
         orders.print(); // for DEBUG
 
-        ssc.start();
-        ssc.awaitTermination();
+        jssc.start();
+        jssc.awaitTermination();
     }
 }

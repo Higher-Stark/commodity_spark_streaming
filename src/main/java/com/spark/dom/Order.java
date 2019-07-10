@@ -6,7 +6,7 @@ import java.util.ArrayList;
 public class Order {
     public String user_id;
     public String initiator;
-    public Timestamp time;
+    public Long time;
     public ArrayList<Item> items;
 
     public String toString() {

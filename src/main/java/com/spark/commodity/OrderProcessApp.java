@@ -2,10 +2,12 @@ package com.spark.commodity;
 
 import java.lang.String;
 import java.sql.Connection;
+import java.sql.Timestamp;
 import java.util.*;
 
-import com.alibaba.fastjson.JSON;
+import com.spark.dom.Item;
 import com.spark.dom.Order;
+import net.sf.json.JSONObject;
 import org.apache.kafka.common.serialization.IntegerDeserializer;
 import org.apache.spark.SparkConf;
 import org.apache.spark.TaskContext;
@@ -19,8 +21,8 @@ import org.apache.spark.streaming.kafka010.*;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.serialization.StringDeserializer;
+import org.mortbay.util.ajax.JSONObjectConvertor;
 import scala.Tuple2;
-import com.alibaba.fastjson.JSON;
 import java.sql.DriverManager;
 import org.apache.zookeeper.*;
 
@@ -34,23 +36,25 @@ public class OrderProcessApp {
         // configure Kafka
         Map<String, Object> kafkaParams = new HashMap<>();
         kafkaParams.put("bootstrap.servers", "localhost:9092");
-        kafkaParams.put("key.deserializer", IntegerDeserializer.class);
+        kafkaParams.put("key.deserializer", StringDeserializer.class);
         kafkaParams.put("value.deserializer", StringDeserializer.class);
         kafkaParams.put("group.id", "1");
         kafkaParams.put("auto.offset.reset", "latest");
         kafkaParams.put("enable.auto.commit", false);
 
-        Set<String> topics = new HashSet<String>(Arrays.asList("test20180430"));
+        // kafka topics
+        Set<String> topics = new HashSet<String>(Arrays.asList("oltest"));
 
         // Configure mysql and zookeeper
-        String zkPorts = "0.0.0.0:2181,192.168.18.144:2181";  // Zookeeper cluster
+//        String zkPorts = "0.0.0.0:2181,192.168.18.144:2181";  // Zookeeper cluster
+        String zkPorts = "0.0.0.0:2181";
         // TODO: MySQL database?
-        String mysqlJdbc = "jdbc:mysql//0.0.0.0:3386/<database>"; // MysQL config, using SSH channel
+        String mysqlJdbc = "jdbc:mysql://127.0.0.1:3306/ds_settlement_system"; // MysQL config, using SSH channel
 
         // Setup Spark Driver
-        SparkConf conf = new SparkConf().setAppName("CommodityApp").setMaster("localhost:9001");
-        JavaStreamingContext jssc = new JavaStreamingContext(conf, new Duration(1000));
-        jssc.checkpoint("/streaming_checkpoint");
+        SparkConf conf = new SparkConf().setAppName("CommodityApp").setMaster("local[*]");
+        JavaStreamingContext jssc = new JavaStreamingContext(conf, new Duration(5000));
+//        jssc.checkpoint("/streaming_checkpoint");
 
         // Get input stream from Kafka
         JavaInputDStream<ConsumerRecord<String, String>> input =
@@ -60,24 +64,73 @@ public class OrderProcessApp {
                         ConsumerStrategies.<String, String>Subscribe(topics, kafkaParams));
 
         // Transform order
+//        JavaPairDStream<String, String> orders = input.mapToPair(
+//            new PairFunction<ConsumerRecord<String, String>, String, String>() {
+//                @Override
+//                public Tuple2<String, String> call(ConsumerRecord<String, String> record) {
+//                    System.out.println("record"+record);
+//                    return new Tuple2<>(record.key(), record.value());
+//                }
+//            });
         // TODO: process order
-        JavaDStream<Tuple2<String, Order>> orders = input.map(record ->
-                new Tuple2<String, Order>(record.key(), JSON.parseObject(record.value(), Order.class)));
-        orders.map(order -> {
-            // TODO:
-            Checker checker = new Checker(zkPorts, mysqlJdbc);
-            try{
-                checker.startZK();
-            } catch (Exception e){
-                System.err.println(e.getMessage());
-                e.printStackTrace();
+//        JavaDStream<Tuple2<String, Order>> orders = input.map(record ->
+//                new Tuple2<String, Order>(record.key(), JSON.parseObject(record.value(), Order.class)));
+        JavaDStream<String> orders = input.map(
+            new Function<ConsumerRecord<String, String>, String>() {
+                @Override
+                public String call(ConsumerRecord<String, String> record) throws Exception {
+                    // init a checker
+                    Checker checker = new Checker(zkPorts, mysqlJdbc);
+                    try{
+                        checker.startZK();
+                    } catch (Exception e){
+                        System.err.println(e.getMessage());
+                        e.printStackTrace();
+                        return "failed";
+                    }
+
+                    // parse kafka message record
+                    String rid = record.key();
+                    Order order = new Order();
+                    JSONObject order_json = JSONObject.fromObject(record.value());
+                    System.out.println(rid + order_json);// log
+                    order.user_id = order_json.getString("user_id");
+                    order.initiator = order_json.getString("initiator");
+                    order.time = order_json.getLong("time");
+                    order.items = new ArrayList<Item>();
+                    for (int i = 0; i < order_json.getJSONArray("items").size(); i++) {
+                        Item it = new Item();
+                        it.id = order_json.getJSONArray("items").getJSONObject(i).getString("id");
+                        it.number = order_json.getJSONArray("items").getJSONObject(i).getInt("number");
+                        order.items.add(it);
+                    }
+                    System.out.println(rid + '-' + order.toString());
+
+                    // check logic
+                    Integer r = checker.check(rid, order);
+                    if (r < 0){
+                        System.err.println("Error happens in check for order: " + order.toString() + ", error code: "+ r);
+                    }
+
+                    return rid + " success";
+                }
             }
-            Integer r = checker.check(order._1, order._2);
-            if (r < 0){
-                System.err.println("Error happens in check for order: " + order._1 + ", error code: "+ r);
-            }
-            return null;
-        });
+        );
+//        orders.map(order -> {
+//            // TODO:
+//            Checker checker = new Checker(zkPorts, mysqlJdbc);
+//            try{
+//                checker.startZK();
+//            } catch (Exception e){
+//                System.err.println(e.getMessage());
+//                e.printStackTrace();
+//            }
+//            Integer r = checker.check(order._1, order._2);
+//            if (r < 0){
+//                System.err.println("Error happens in check for order: " + order._1 + ", error code: "+ r);
+//            }
+//            return null;
+//        });
         // TODO: Remove in the future
         orders.print(); // for DEBUG
 

@@ -53,11 +53,13 @@ public class Checker implements Watcher{
         System.out.println(e);
     }
 
-    private void notifySpring(String rid, String new_id) {
-        //TODO: update ZK node <rid> using value <new_id>
+    private void notifySpring(String rid, String result_id) throws Exception{
+        //TODO: update ZK node <rid> using value <result_id>
+        zk.setData("/spring/" + rid, result_id.getBytes(), -1);
     }
 
     private String insertResult(String user_id, String initiator, Integer success, Float totalPaid) throws SQLException{
+        // create a result entry & return result_id
         Statement smt = db_connection.createStatement();
         ResultSet rs;
         String new_id;
@@ -67,18 +69,20 @@ public class Checker implements Watcher{
 
         if (rs.wasNull())
             new_id = "1";
-        else
+        else {
+            rs.next();
             new_id = String.valueOf(rs.getInt("id") + 1);
+        }
         System.out.println("table <result> new id: " + new_id);
 
         sql = "INSERT INTO result values(" +
-                new_id + ", " + user_id + ", " + initiator + ", " + success + ", " + totalPaid +
+                new_id + ", '" + user_id + "', '" + initiator + "', " + success + ", " + totalPaid +
                 ")";
         smt.execute(sql);
         return new_id;
     }
 
-    public int check(String rid, Order order) {
+    public int check(String rid, Order order) throws Exception {
         Collections.sort(order.items);
         Float totalPaid = Float.valueOf(0);   //订单总价
         Boolean committed = false;
@@ -105,6 +109,7 @@ public class Checker implements Watcher{
                     return ORDER_FAILED;
                 }
 
+                rs.next();
                 Integer remain = rs.getInt("inventory");
                 Float price = rs.getFloat("price");
                 // Good is not enough, cancel the order

@@ -1,7 +1,9 @@
 package com.spark.commodity;
 
+import com.spark.dom.CurrencyRate;
 import com.spark.dom.Item;
 import com.spark.dom.Order;
+import net.sf.json.JSONObject;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.Watcher;
 import org.apache.zookeeper.ZooKeeper;
@@ -28,6 +30,8 @@ public class Checker implements Watcher{
     public final Integer ORDER_SUCCEED = 0;
     public final Integer ORDER_FAILED = -1;
     public final Integer SQL_EXCEPTION = -2;
+
+    public final String CHANGE_RATE_JSON = "{\"RMB\":\"2.0\", \"USD\":\"12.0\",\"JPY\":\"0.15\",\"EUR\":\"9.0\"}";
 
 
     private ZooKeeper zk;
@@ -75,6 +79,7 @@ public class Checker implements Watcher{
         }
         System.out.println("table <result> new id: " + new_id);
 
+        // Change union currency back to initiator currency
         sql = "INSERT INTO result values(" +
                 new_id + ", '" + user_id + "', '" + initiator + "', " + success + ", " + totalPaid +
                 ")";
@@ -84,9 +89,12 @@ public class Checker implements Watcher{
 
     public int check(String rid, Order order) throws Exception {
         Collections.sort(order.items);
-        Float totalPaid = Float.valueOf(0);   //订单总价
+        Float totalPaidUnion = Float.valueOf(0);   //订单总价,以通用货币为单位
         Boolean committed = false;
         String sql, new_id = "";
+        // TODO: request on-time exchange rate json instead of CHANGE_RATE_JSON
+        CurrencyRate currencyRate = new CurrencyRate(JSONObject.fromObject(CHANGE_RATE_JSON));
+
         try {
             Statement smt = db_connection.createStatement();
             ResultSet rs;
@@ -112,6 +120,7 @@ public class Checker implements Watcher{
                 rs.next();
                 Integer remain = rs.getInt("inventory");
                 Float price = rs.getFloat("price");
+                String currency = rs.getString("currency");
                 // Good is not enough, cancel the order
                 if (remain < i.number) {
                     System.out.println("Good with id " + i.id + " not enough, required " + i.number + ", left " + remain + ". Order cancel!");
@@ -126,11 +135,11 @@ public class Checker implements Watcher{
                     remain -= i.number;
                     sql = "UPDATE commodity SET inventory = " + remain + " WHERE id = " + i.id;
                     smt.executeUpdate(sql);
-                    totalPaid += i.number * price;
+                    totalPaidUnion += i.number * price * currencyRate.getRate(currency);
                 }
             }
-            // Successfully processed all the goods in the order, commit
-            new_id = insertResult(order.user_id, order.initiator, 1, totalPaid);
+            // Successfully processed all the goods in the order, commit, note that totalPaidUnion is changed to totalPaid
+            new_id = insertResult(order.user_id, order.initiator, 1, totalPaidUnion/currencyRate.getRate(order.initiator));
             db_connection.commit();
             committed = true;
             db_connection.close();

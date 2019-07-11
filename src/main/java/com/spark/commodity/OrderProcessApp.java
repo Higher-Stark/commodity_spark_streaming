@@ -21,10 +21,6 @@ import org.apache.spark.streaming.kafka010.*;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.serialization.StringDeserializer;
-import org.mortbay.util.ajax.JSONObjectConvertor;
-import scala.Tuple2;
-import java.sql.DriverManager;
-import org.apache.zookeeper.*;
 
 
 /**
@@ -35,7 +31,8 @@ public class OrderProcessApp {
     public static void main(String[] argv) throws Exception {
         // configure Kafka
         Map<String, Object> kafkaParams = new HashMap<>();
-        kafkaParams.put("bootstrap.servers", "192.168.18.1:9092");
+        kafkaParams.put("bootstrap.servers", "10.0.0.24:9092,10.0.0.23:9092,10.0.0.48:9092,10.0.0.63:9092");
+//        kafkaParams.put("bootstrap.servers", "localhost:9092");
         kafkaParams.put("key.deserializer", StringDeserializer.class);
         kafkaParams.put("value.deserializer", StringDeserializer.class);
         kafkaParams.put("group.id", "1");
@@ -47,13 +44,13 @@ public class OrderProcessApp {
 
         // Configure mysql and zookeeper
 //        String zkPorts = "0.0.0.0:2181,192.168.18.144:2181";  // Zookeeper cluster
-        String zkPorts = "0.0.0.0:2181";
+        String zkPorts = "10.0.0.24:2181,10.0.0.23:2181,10.0.0.48:2181,10.0.0.63:2181";
         // TODO: MySQL database?
-        String mysqlJdbc = "jdbc:mysql://127.0.0.1:3386/ds_test"; // MysQL config, using SSH channel
+        String mysqlJdbc = "jdbc:mysql://10.0.0.63:3306/ds_settlement_system"; // MysQL config, using SSH channel
 
         // Setup Spark Driver
-        SparkConf conf = new SparkConf().setAppName("CommodityApp").setMaster("local[*]");
-        JavaStreamingContext jssc = new JavaStreamingContext(conf, new Duration(1000));
+        SparkConf conf = new SparkConf().setAppName("CommodityApp").setMaster("spark://10.0.0.63:7077");
+        JavaStreamingContext jssc = new JavaStreamingContext(conf, new Duration(3000));
 //        jssc.checkpoint("/streaming_checkpoint");
 
         // Get input stream from Kafka

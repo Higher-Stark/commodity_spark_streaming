@@ -31,8 +31,8 @@ public class OrderProcessApp {
     public static void main(String[] argv) throws Exception {
         // configure Kafka
         Map<String, Object> kafkaParams = new HashMap<>();
-        kafkaParams.put("bootstrap.servers", "10.0.0.24:9092,10.0.0.23:9092,10.0.0.48:9092,10.0.0.63:9092");
-//        kafkaParams.put("bootstrap.servers", "localhost:9092");
+//        kafkaParams.put("bootstrap.servers", "10.0.0.24:9092,10.0.0.23:9092,10.0.0.48:9092,10.0.0.63:9092"); // build parameter
+        kafkaParams.put("bootstrap.servers", "localhost:9092"); // local parameter
         kafkaParams.put("key.deserializer", StringDeserializer.class);
         kafkaParams.put("value.deserializer", StringDeserializer.class);
         kafkaParams.put("group.id", "1");
@@ -43,15 +43,17 @@ public class OrderProcessApp {
         Set<String> topics = new HashSet<String>(Arrays.asList("oltest"));
 
         // Configure mysql and zookeeper
-//        String zkPorts = "0.0.0.0:2181,192.168.18.144:2181";  // Zookeeper cluster
-        String zkPorts = "10.0.0.24:2181,10.0.0.23:2181,10.0.0.48:2181,10.0.0.63:2181";
+        String zkPorts = "0.0.0.0:2181";  // local parameter
+//        String zkPorts = "10.0.0.24:2181,10.0.0.23:2181,10.0.0.48:2181,10.0.0.63:2181"; // build parameter
         // TODO: MySQL database?
         String mysqlJdbc = "jdbc:mysql://10.0.0.63:3306/ds_settlement_system"; // MysQL config, using SSH channel
 
         // Setup Spark Driver
-        SparkConf conf = new SparkConf().setAppName("CommodityApp").setMaster("spark://10.0.0.63:7077");
+        SparkConf conf = new SparkConf()
+                .setAppName("CommodityApp")
+                .setMaster("local[*]"); // local parameter
+//                .setMaster("spark://10.0.0.63:7077"); // build parameter
         JavaStreamingContext jssc = new JavaStreamingContext(conf, new Duration(3000));
-//        jssc.checkpoint("/streaming_checkpoint");
 
         // Get input stream from Kafka
         JavaInputDStream<ConsumerRecord<String, String>> input =
@@ -61,17 +63,6 @@ public class OrderProcessApp {
                         ConsumerStrategies.<String, String>Subscribe(topics, kafkaParams));
 
         // Transform order
-//        JavaPairDStream<String, String> orders = input.mapToPair(
-//            new PairFunction<ConsumerRecord<String, String>, String, String>() {
-//                @Override
-//                public Tuple2<String, String> call(ConsumerRecord<String, String> record) {
-//                    System.out.println("record"+record);
-//                    return new Tuple2<>(record.key(), record.value());
-//                }
-//            });
-        // TODO: process order
-//        JavaDStream<Tuple2<String, Order>> orders = input.map(record ->
-//                new Tuple2<String, Order>(record.key(), JSON.parseObject(record.value(), Order.class)));
         JavaDStream<String> orders = input.map(
             new Function<ConsumerRecord<String, String>, String>() {
                 @Override
@@ -113,21 +104,6 @@ public class OrderProcessApp {
                 }
             }
         );
-//        orders.map(order -> {
-//            // TODO:
-//            Checker checker = new Checker(zkPorts, mysqlJdbc);
-//            try{
-//                checker.startZK();
-//            } catch (Exception e){
-//                System.err.println(e.getMessage());
-//                e.printStackTrace();
-//            }
-//            Integer r = checker.check(order._1, order._2);
-//            if (r < 0){
-//                System.err.println("Error happens in check for order: " + order._1 + ", error code: "+ r);
-//            }
-//            return null;
-//        });
         // TODO: Remove in the future
         orders.print(); // for DEBUG
 

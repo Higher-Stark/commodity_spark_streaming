@@ -46,7 +46,8 @@ public class OrderProcessApp {
         String zkPorts = "0.0.0.0:2181";  // local parameter
 //        String zkPorts = "10.0.0.24:2181,10.0.0.23:2181,10.0.0.48:2181,10.0.0.63:2181"; // build parameter
         // TODO: MySQL database?
-        String mysqlJdbc = "jdbc:mysql://10.0.0.63:3306/ds_settlement_system"; // MysQL config, using SSH channel
+//        String mysqlJdbc = "jdbc:mysql://10.0.0.63:3306/ds_settlement_system"; // build parameter
+        String mysqlJdbc = "jdbc:mysql://localhost:3306/ds_settlement_system"; // local parameter
 
         // Setup Spark Driver
         SparkConf conf = new SparkConf()

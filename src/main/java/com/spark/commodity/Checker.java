@@ -8,6 +8,7 @@ import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.Watcher;
 import org.apache.zookeeper.ZooKeeper;
 import org.apache.zookeeper.WatchedEvent;
+import org.apache.zookeeper.data.Stat;
 
 import java.io.IOException;
 import java.sql.Connection;
@@ -92,8 +93,11 @@ public class Checker implements Watcher{
         Float totalPaidUnion = Float.valueOf(0);   //订单总价,以通用货币为单位
         Boolean committed = false;
         String sql, new_id = "";
+
         // TODO: request on-time exchange rate json instead of CHANGE_RATE_JSON
-        CurrencyRate currencyRate = new CurrencyRate(JSONObject.fromObject(CHANGE_RATE_JSON));
+        byte[] change_rate = zk.getData("/settlement/change_rate", false, new Stat());
+        CurrencyRate currencyRate = new CurrencyRate(JSONObject.fromObject(new String(change_rate)));
+//        CurrencyRate currencyRate = new CurrencyRate(JSONObject.fromObject(CHANGE_RATE_JSON));
 
         try {
             Statement smt = db_connection.createStatement();

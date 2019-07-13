@@ -1,11 +1,8 @@
 package com.spark.commodity;
 
 import java.lang.String;
-import java.sql.Connection;
-import java.sql.Timestamp;
 import java.util.*;
 
-import com.alibaba.fastjson.JSON;
 import com.spark.dom.Item;
 import com.spark.dom.Order;
 import net.sf.json.JSONObject;

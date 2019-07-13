@@ -102,6 +102,7 @@ public class OrderProcessApp {
                 if (r == "-1")
                     logger.info("ERROR checking order " + order.toString() + ", error code: " + r);
                 checker.close();
+                logger.info(r + " - " + order.toString());
             });
 
             ((CanCommitOffsets)input.inputDStream()).commitAsync(offsetRanges);

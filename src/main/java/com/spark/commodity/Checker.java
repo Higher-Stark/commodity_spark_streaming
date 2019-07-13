@@ -3,6 +3,7 @@ package com.spark.commodity;
 import com.spark.dom.CurrencyRate;
 import com.spark.dom.Item;
 import com.spark.dom.Order;
+import com.zaxxer.hikari.HikariDataSource;
 import net.sf.json.JSONObject;
 import org.apache.spark.sql.execution.SQLExecution;
 import org.apache.zookeeper.*;
@@ -41,25 +42,16 @@ public class Checker implements Watcher{
     private ZooKeeper zk;
     private String hostPort;   // ZooKeeper cluster config
 
-    Connection db_connection; // JDBC connection to MySQL
-    private String mysql_hostPort;
+    private Connection db_connection; // JDBC connection to MySQL
 
-    public Checker(String hostPort, String mysql_config) {
+    public Checker (String hostPort, Logger logger) {
         this.hostPort = hostPort;
-        this.mysql_hostPort = mysql_config;
-        this.logger = LoggerFactory.getLogger(Checker.class);
-    }
-
-    public Checker (String hostPort, String mysql_hostPort, Logger logger) {
-        this.hostPort = hostPort;
-        this.mysql_hostPort = mysql_hostPort;
         this.logger = logger;
     }
 
-    public void startZK() throws IOException, SQLException, ClassNotFoundException {
+    public void startZK(HikariDataSource source) throws IOException, SQLException, ClassNotFoundException {
         zk = new ZooKeeper(hostPort, 15000, this);
-        Class.forName("com.mysql.jdbc.Driver");
-        db_connection = DriverManager.getConnection(mysql_hostPort, "root", "Crash#mysql123");
+        db_connection = source.getConnection();
         db_connection.setTransactionIsolation(Connection.TRANSACTION_READ_COMMITTED);
         db_connection.setAutoCommit(false);  // Turn on Transaction
     }

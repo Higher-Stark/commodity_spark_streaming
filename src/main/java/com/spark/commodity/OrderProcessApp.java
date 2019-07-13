@@ -19,7 +19,8 @@ import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
+import com.zaxxer.hikari.HikariConfig;
+import com.zaxxer.hikari.HikariDataSource;
 
 /**
  * @argv param1 param2 param3
@@ -27,6 +28,12 @@ import org.slf4j.LoggerFactory;
  */
 public class OrderProcessApp {
     private static final Logger logger = LoggerFactory.getLogger(OrderProcessApp.class);
+
+    private static HikariDataSource dataSrc;
+    public static void prepareHikari(Properties props) {
+        HikariConfig config = new HikariConfig(props);
+        dataSrc = new HikariDataSource(config);
+    }
 
     public static void main(String[] argv) throws Exception {
         // configure Kafka
@@ -52,6 +59,26 @@ public class OrderProcessApp {
         // DEBUG info -
         logger.info("Zookeeper config: {}", zkPorts);
         logger.info("MySQL connection config: {}", mysqlJdbc);
+
+        // Setup Hikari Connection Pool
+        Properties props = new Properties();
+        props.setProperty("jdbcUrl", mysqlJdbc);
+        props.setProperty("dataSource.serverName", "10.0.0.63");
+        props.setProperty("dataSource.portNumber", "3306");
+        props.setProperty("dataSource.user", "root");
+        props.setProperty("dataSource.password", "Crash#mysql123");
+        props.setProperty("dataSource.cachePrepStmts", "true");
+        props.setProperty("dataSource.prepStmtCacheSize", "250");
+        props.setProperty("dataSource.prepStmtCacheSqlLimit", "2048");
+        props.setProperty("dataSource.useServerPrepStmts", "true");
+        props.setProperty("dataSource.useLocalSessionState", "true");
+        props.setProperty("dataSource.rewriteBatchedStatements", "true");
+        props.setProperty("dataSource.cacheResultSetMetadata", "true");
+        props.setProperty("dataSource.cacheServerConfiguration", "true");
+        props.setProperty("dataSource.elideSetAutoCommits", "true");
+        props.setProperty("dataSource.maintainTimeStats", "false");
+        props.put("dataSource.logWriter", logger);
+        prepareHikari(props);
 
         // Setup Spark Driver
         SparkConf conf = new SparkConf()

@@ -4,10 +4,7 @@ import com.spark.dom.CurrencyRate;
 import com.spark.dom.Item;
 import com.spark.dom.Order;
 import net.sf.json.JSONObject;
-import org.apache.zookeeper.CreateMode;
-import org.apache.zookeeper.Watcher;
-import org.apache.zookeeper.ZooKeeper;
-import org.apache.zookeeper.WatchedEvent;
+import org.apache.zookeeper.*;
 import org.apache.zookeeper.data.Stat;
 
 import java.io.IOException;
@@ -20,6 +17,8 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import static org.apache.zookeeper.ZooDefs.Ids.OPEN_ACL_UNSAFE;
 
 /*
@@ -34,6 +33,7 @@ public class Checker implements Watcher{
 
     public final String CHANGE_RATE_JSON = "{\"RMB\":\"2.0\", \"USD\":\"12.0\",\"JPY\":\"0.15\",\"EUR\":\"9.0\"}";
 
+    private static Logger logger;
 
     private ZooKeeper zk;
     private String hostPort;   // ZooKeeper cluster config
@@ -44,6 +44,13 @@ public class Checker implements Watcher{
     public Checker(String hostPort, String mysql_config) {
         this.hostPort = hostPort;
         this.mysql_hostPort = mysql_config;
+        this.logger = LoggerFactory.getLogger(Checker.class);
+    }
+
+    public Checker (String hostPort, String mysql_hostPort, Logger logger) {
+        this.hostPort = hostPort;
+        this.mysql_hostPort = mysql_hostPort;
+        this.logger = logger;
     }
 
     public void startZK() throws IOException, SQLException, ClassNotFoundException {
@@ -58,9 +65,27 @@ public class Checker implements Watcher{
         System.out.println(e);
     }
 
-    private void notifySpring(String rid, String result_id) throws Exception{
+    private int notifySpring(String rid, String result_id) {
         //TODO: update ZK node <rid> using value <result_id>
-        zk.setData("/spring/" + rid, result_id.getBytes(), -1);
+        try {
+            zk.setData("/spring/" + rid, result_id.getBytes(), -1);
+        }
+        catch (KeeperException e) {
+            if (e.code() == KeeperException.Code.NONODE)
+                logger.error("No node /spring/" + rid + " failed!");
+            else
+                logger.error("KeeperException " + e.getMessage());
+            return -1;
+        }
+        catch (InterruptedException e) {
+            logger.error(e.getMessage());
+            return -1;
+        }
+        catch (IllegalArgumentException e) {
+            logger.error(e.getMessage());
+            return -1;
+        }
+        return 0;
     }
 
     private String insertResult(String user_id, String initiator, Integer success, Float totalPaid) throws SQLException{
@@ -78,7 +103,7 @@ public class Checker implements Watcher{
             rs.next();
             new_id = String.valueOf(rs.getInt("id") + 1);
         }
-        System.out.println("table <result> new id: " + new_id);
+        logger.info("table <result> new id: " + new_id);
 
         // Change union currency back to initiator currency
         sql = "INSERT INTO result values(" +
@@ -88,14 +113,29 @@ public class Checker implements Watcher{
         return new_id;
     }
 
-    public int check(String rid, Order order) throws Exception {
+    public int check(String rid, Order order) {
         Collections.sort(order.items);
         Float totalPaidUnion = Float.valueOf(0);   //订单总价,以通用货币为单位
         Boolean committed = false;
         String sql, new_id = "";
 
         // TODO: request on-time exchange rate json instead of CHANGE_RATE_JSON
-        byte[] change_rate = zk.getData("/settlement/change_rate", false, new Stat());
+        byte[] change_rate;
+        try {
+            change_rate = zk.getData("/settlement/change_rate", false, new Stat());
+        }
+        catch (KeeperException e) {
+            if (e.code() == KeeperException.Code.NONODE) {
+                logger.info("zNode /settlement/change_rate not exists!");
+            }
+            else
+                logger.info("KeeperException !" + e.getMessage());
+            return ORDER_FAILED;
+        }
+        catch (InterruptedException e) {
+            logger.info("Server transaction interrupted!" + e.getMessage());
+            return ORDER_FAILED;
+        }
         CurrencyRate currencyRate = new CurrencyRate(JSONObject.fromObject(new String(change_rate)));
 //        CurrencyRate currencyRate = new CurrencyRate(JSONObject.fromObject(CHANGE_RATE_JSON));
 
@@ -111,7 +151,7 @@ public class Checker implements Watcher{
 
                 // Good is not found, cancel the order
                 if (rs.wasNull()) {
-                    System.out.println("Good with id " + i.id + " not found, order cancel!");
+                    logger.info("Good with id " + i.id + " not found, order cancel!");
                     db_connection.rollback(); // withdraw previous modification
                     new_id = insertResult(order.user_id, order.initiator, 0, Float.valueOf(0));
                     db_connection.commit();
@@ -127,7 +167,7 @@ public class Checker implements Watcher{
                 String currency = rs.getString("currency");
                 // Good is not enough, cancel the order
                 if (remain < i.number) {
-                    System.out.println("Good with id " + i.id + " not enough, required " + i.number + ", left " + remain + ". Order cancel!");
+                    logger.info("Good with id " + i.id + " not enough, required " + i.number + ", left " + remain + ". Order cancel!");
                     db_connection.rollback(); // withdraw previous modification
                     new_id = insertResult(order.user_id, order.initiator, 0, Float.valueOf(0));
                     db_connection.commit();
@@ -148,6 +188,12 @@ public class Checker implements Watcher{
             committed = true;
             db_connection.close();
             notifySpring(rid, new_id);
+            try {
+                zk.close();
+            }
+            catch (InterruptedException e) {
+                logger.warn(e.getMessage());
+            }
             return ORDER_SUCCEED;
         }
         catch (SQLException e) {// exception occurs, cancel the order

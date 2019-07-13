@@ -5,6 +5,7 @@ import java.sql.Connection;
 import java.sql.Timestamp;
 import java.util.*;
 
+import com.alibaba.fastjson.JSON;
 import com.spark.dom.Item;
 import com.spark.dom.Order;
 import net.sf.json.JSONObject;
@@ -21,6 +22,8 @@ import org.apache.spark.streaming.kafka010.*;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.serialization.StringDeserializer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 
 /**
@@ -28,6 +31,8 @@ import org.apache.kafka.common.serialization.StringDeserializer;
  *  param1:
  */
 public class OrderProcessApp {
+    private static final Logger logger = LoggerFactory.getLogger(OrderProcessApp.class);
+
     public static void main(String[] argv) throws Exception {
         // configure Kafka
         Map<String, Object> kafkaParams = new HashMap<>();
@@ -36,7 +41,7 @@ public class OrderProcessApp {
         kafkaParams.put("key.deserializer", StringDeserializer.class);
         kafkaParams.put("value.deserializer", StringDeserializer.class);
         kafkaParams.put("group.id", "1");
-        kafkaParams.put("auto.offset.reset", "latest");
+        kafkaParams.put("auto.offset.reset", "smallest");
         kafkaParams.put("enable.auto.commit", false);
 
         // kafka topics
@@ -64,49 +69,35 @@ public class OrderProcessApp {
                         ConsumerStrategies.<String, String>Subscribe(topics, kafkaParams));
 
         // Transform order
-        JavaDStream<String> orders = input.map(
-            new Function<ConsumerRecord<String, String>, String>() {
-                @Override
-                public String call(ConsumerRecord<String, String> record) throws Exception {
-                    // init a checker
-                    Checker checker = new Checker(zkPorts, mysqlJdbc);
-                    try{
-                        checker.startZK();
-                    } catch (Exception e){
-                        System.err.println(e.getMessage());
-                        e.printStackTrace();
-                        return "failed";
-                    }
+        input.foreachRDD(rdd -> {
+            OffsetRange[] offsetRanges = ((HasOffsetRanges)rdd.rdd()).offsetRanges();
 
-                    // parse kafka message record
-                    String rid = record.key();
-                    Order order = new Order();
-                    JSONObject order_json = JSONObject.fromObject(record.value());
-                    System.out.println(rid + order_json);// log
-                    order.user_id = order_json.getString("user_id");
-                    order.initiator = order_json.getString("initiator");
-                    order.time = order_json.getLong("time");
-                    order.items = new ArrayList<Item>();
-                    for (int i = 0; i < order_json.getJSONArray("items").size(); i++) {
-                        Item it = new Item();
-                        it.id = order_json.getJSONArray("items").getJSONObject(i).getString("id");
-                        it.number = order_json.getJSONArray("items").getJSONObject(i).getInt("number");
-                        order.items.add(it);
-                    }
-                    System.out.println(rid + '-' + order.toString());
-
-                    // check logic
-                    Integer r = checker.check(rid, order);
-                    if (r < 0){
-                        System.err.println("Error happens in check for order: " + order.toString() + ", error code: "+ r);
-                    }
-
-                    return rid + " success";
+            rdd.foreach(record -> {
+                Checker checker = new Checker(zkPorts, mysqlJdbc, logger);
+                try {
+                    checker.startZK();
                 }
-            }
-        );
-        // TODO: Remove in the future
-        orders.print(); // for DEBUG
+                catch (Exception e){
+                    System.err.println(e.getMessage());
+                    e.printStackTrace();
+                    return;
+                }
+
+                String rid = record.key();
+                Order order = (Order)JSON.parse(record.value());
+
+                logger.info(rid + " - " + order.toString());
+                Integer r = checker.check(rid, order);
+                if (r < 0) {
+                    logger.info("ERROR checking order " + order.toString() + ", error code: " + r);
+                    return;
+                }
+
+
+            });
+
+            ((CanCommitOffsets)input.inputDStream()).commitAsync(offsetRanges);
+        });
 
         jssc.start();
         jssc.awaitTermination();

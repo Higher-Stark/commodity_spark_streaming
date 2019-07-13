@@ -1,6 +1,8 @@
 package com.spark.dom;
 
-public class Item implements Comparable<Item>{
+import java.io.Serializable;
+
+public class Item implements Comparable<Item>, Serializable {
     public String id;
     public int number;
 

@@ -1,9 +1,9 @@
 package com.spark.dom;
 
-import java.sql.Timestamp;
+import java.io.Serializable;
 import java.util.ArrayList;
 
-public class Order {
+public class Order implements Serializable {
     public String user_id;
     public String initiator;
     public Long time;

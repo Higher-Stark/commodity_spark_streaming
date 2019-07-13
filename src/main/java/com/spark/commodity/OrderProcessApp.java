@@ -49,6 +49,10 @@ public class OrderProcessApp {
 //        String mysqlJdbc = "jdbc:mysql://10.0.0.63:3306/ds_settlement_system"; // build parameter
         String mysqlJdbc = "jdbc:mysql://localhost:3306/ds_settlement_system"; // local parameter
 
+        // DEBUG info -
+        logger.info("Zookeeper config: {}", zkPorts);
+        logger.info("MySQL connection config: {}", mysqlJdbc);
+
         // Setup Spark Driver
         SparkConf conf = new SparkConf()
                 .setAppName("CommodityApp")

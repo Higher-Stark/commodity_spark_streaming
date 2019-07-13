@@ -99,9 +99,9 @@ public class OrderProcessApp {
             OffsetRange[] offsetRanges = ((HasOffsetRanges)rdd.rdd()).offsetRanges();
 
             rdd.foreach(record -> {
-                Checker checker = new Checker(zkPorts, mysqlJdbc, logger);
+                Checker checker = new Checker(zkPorts, logger);
                 try {
-                    checker.startZK();
+                    checker.startZK(dataSrc);
                 }
                 catch (Exception e){
                     System.err.println(e.getMessage());

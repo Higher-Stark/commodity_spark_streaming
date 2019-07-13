@@ -14,10 +14,8 @@ import org.apache.spark.SparkConf;
 import org.apache.spark.TaskContext;
 import org.apache.spark.api.java.function.*;
 import org.apache.spark.storage.StorageLevel;
-import org.apache.spark.rdd.JdbcRDD;
 import org.apache.spark.streaming.*;
 import org.apache.spark.streaming.api.java.*;
-import org.apache.spark.streaming.dstream.ReceiverInputDStream;
 import org.apache.spark.streaming.kafka010.*;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.common.TopicPartition;
@@ -41,7 +39,7 @@ public class OrderProcessApp {
         kafkaParams.put("key.deserializer", StringDeserializer.class);
         kafkaParams.put("value.deserializer", StringDeserializer.class);
         kafkaParams.put("group.id", "1");
-        kafkaParams.put("auto.offset.reset", "smallest");
+        kafkaParams.put("auto.offset.reset", "latest");
         kafkaParams.put("enable.auto.commit", false);
 
         // kafka topics
@@ -84,16 +82,26 @@ public class OrderProcessApp {
                 }
 
                 String rid = record.key();
-                Order order = (Order)JSON.parse(record.value());
-
-                logger.info(rid + " - " + order.toString());
-                Integer r = checker.check(rid, order);
-                if (r < 0) {
-                    logger.info("ERROR checking order " + order.toString() + ", error code: " + r);
-                    return;
+                Order order = new Order();
+                JSONObject order_json = JSONObject.fromObject(record.value());
+                logger.info(rid + order_json);// log
+                order.user_id = order_json.getString("user_id");
+                order.initiator = order_json.getString("initiator");
+                order.time = order_json.getLong("time");
+                order.items = new ArrayList<Item>();
+                for (int i = 0; i < order_json.getJSONArray("items").size(); i++) {
+                    Item it = new Item();
+                    it.id = order_json.getJSONArray("items").getJSONObject(i).getString("id");
+                    it.number = order_json.getJSONArray("items").getJSONObject(i).getInt("number");
+                    order.items.add(it);
                 }
 
-
+                logger.info(rid + " - " + order.toString());
+                String r = checker.check(rid, order);
+                checker.notifySpring(rid, r);
+                if (r == "-1")
+                    logger.info("ERROR checking order " + order.toString() + ", error code: " + r);
+                checker.close();
             });
 
             ((CanCommitOffsets)input.inputDStream()).commitAsync(offsetRanges);

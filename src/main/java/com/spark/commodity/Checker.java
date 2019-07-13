@@ -4,6 +4,7 @@ import com.spark.dom.CurrencyRate;
 import com.spark.dom.Item;
 import com.spark.dom.Order;
 import net.sf.json.JSONObject;
+import org.apache.spark.sql.execution.SQLExecution;
 import org.apache.zookeeper.*;
 import org.apache.zookeeper.data.Stat;
 
@@ -30,6 +31,8 @@ public class Checker implements Watcher{
     public final Integer ORDER_SUCCEED = 0;
     public final Integer ORDER_FAILED = -1;
     public final Integer SQL_EXCEPTION = -2;
+    public final Integer CLOSE_ZK_ERROR = -3;
+    public final Integer CLOSE_DB_ERROR = -4;
 
     public final String CHANGE_RATE_JSON = "{\"RMB\":\"2.0\", \"USD\":\"12.0\",\"JPY\":\"0.15\",\"EUR\":\"9.0\"}";
 
@@ -65,7 +68,7 @@ public class Checker implements Watcher{
         System.out.println(e);
     }
 
-    private int notifySpring(String rid, String result_id) {
+    public int notifySpring(String rid, String result_id) {
         //TODO: update ZK node <rid> using value <result_id>
         try {
             zk.setData("/spring/" + rid, result_id.getBytes(), -1);
@@ -113,7 +116,7 @@ public class Checker implements Watcher{
         return new_id;
     }
 
-    public int check(String rid, Order order) {
+    public String check(String rid, Order order) {
         Collections.sort(order.items);
         Float totalPaidUnion = Float.valueOf(0);   //订单总价,以通用货币为单位
         Boolean committed = false;
@@ -130,15 +133,17 @@ public class Checker implements Watcher{
             }
             else
                 logger.info("KeeperException !" + e.getMessage());
-            return ORDER_FAILED;
+            return "-1";
         }
         catch (InterruptedException e) {
             logger.info("Server transaction interrupted!" + e.getMessage());
-            return ORDER_FAILED;
+            return "-1";
         }
+
         CurrencyRate currencyRate = new CurrencyRate(JSONObject.fromObject(new String(change_rate)));
 //        CurrencyRate currencyRate = new CurrencyRate(JSONObject.fromObject(CHANGE_RATE_JSON));
 
+        boolean rs_inserted = false;
         try {
             Statement smt = db_connection.createStatement();
             ResultSet rs;
@@ -154,11 +159,10 @@ public class Checker implements Watcher{
                     logger.info("Good with id " + i.id + " not found, order cancel!");
                     db_connection.rollback(); // withdraw previous modification
                     new_id = insertResult(order.user_id, order.initiator, 0, Float.valueOf(0));
+                    rs_inserted = true;
                     db_connection.commit();
                     committed = true;
-                    db_connection.close();
-                    notifySpring(rid, new_id);
-                    return ORDER_FAILED;
+                    return new_id;
                 }
 
                 rs.next();
@@ -170,11 +174,10 @@ public class Checker implements Watcher{
                     logger.info("Good with id " + i.id + " not enough, required " + i.number + ", left " + remain + ". Order cancel!");
                     db_connection.rollback(); // withdraw previous modification
                     new_id = insertResult(order.user_id, order.initiator, 0, Float.valueOf(0));
+                    rs_inserted = true;
                     db_connection.commit();
                     committed = true;
-                    db_connection.close();
-                    notifySpring(rid, new_id);
-                    return ORDER_FAILED;
+                    return new_id;
                 } else {
                     remain -= i.number;
                     sql = "UPDATE commodity SET inventory = " + remain + " WHERE id = " + i.id;
@@ -184,39 +187,45 @@ public class Checker implements Watcher{
             }
             // Successfully processed all the goods in the order, commit, note that totalPaidUnion is changed to totalPaid
             new_id = insertResult(order.user_id, order.initiator, 1, totalPaidUnion/currencyRate.getRate(order.initiator));
+            rs_inserted = true;
             db_connection.commit();
             committed = true;
-            db_connection.close();
-            notifySpring(rid, new_id);
-            try {
-                zk.close();
-            }
-            catch (InterruptedException e) {
-                logger.warn(e.getMessage());
-            }
-            return ORDER_SUCCEED;
+            return new_id;
         }
         catch (SQLException e) {// exception occurs, cancel the order
-            System.err.println(e.getMessage());
+            logger.error(e.getMessage());
             e.printStackTrace();
             try{
-                if (!committed){// To deal with SQL exception happened before commit succeeds
-                    db_connection.rollback();
-                    new_id = insertResult(order.user_id, order.initiator, 0, Float.valueOf(0));
-                    db_connection.commit();
-                    notifySpring(rid, new_id);
-                    db_connection.close();
-                    return ORDER_FAILED;
-                }
-                else {
-                    notifySpring(rid, new_id); // To deal with SQL exception happened while closing connection
-                    return ORDER_SUCCEED;
-                }
+                if (rs_inserted)
+                db_connection.rollback();
             }
             catch (SQLException e1) {
+                logger.error(e1.getMessage());
                 e1.printStackTrace();
-                return SQL_EXCEPTION;
+            }
+            finally {
+                return "-1";
             }
         }
+    }
+
+    public int close() {
+        int ret = 0;
+        try {
+            zk.close();
+        }
+        catch (InterruptedException e) {
+            logger.error(e.getMessage());
+            ret = CLOSE_ZK_ERROR;
+        }
+        try {
+            db_connection.close();
+        }
+        catch (SQLException ex) {
+            logger.error(ex.getMessage());
+            ex.printStackTrace();
+            ret = CLOSE_DB_ERROR;
+        }
+        return ret;
     }
 }

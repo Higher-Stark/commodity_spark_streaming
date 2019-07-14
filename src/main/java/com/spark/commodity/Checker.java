@@ -3,7 +3,9 @@ package com.spark.commodity;
 import com.spark.dom.CurrencyRate;
 import com.spark.dom.Item;
 import com.spark.dom.Order;
+import com.spark.dom.ZkLock;
 import net.sf.json.JSONObject;
+import org.apache.log4j.Logger;
 import org.apache.spark.sql.execution.SQLExecution;
 import org.apache.zookeeper.*;
 import org.apache.zookeeper.data.Stat;
@@ -18,8 +20,6 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import static org.apache.zookeeper.ZooDefs.Ids.OPEN_ACL_UNSAFE;
 
 /*
@@ -47,7 +47,7 @@ public class Checker implements Watcher{
     public Checker(String hostPort, String mysql_config) {
         this.hostPort = hostPort;
         this.mysql_hostPort = mysql_config;
-        this.logger = LoggerFactory.getLogger(Checker.class);
+        this.logger = Logger.getLogger(Checker.class);
     }
 
     public Checker (String hostPort, String mysql_hostPort, Logger logger) {

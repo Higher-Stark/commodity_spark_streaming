@@ -33,6 +33,7 @@ public class Checker implements Watcher{
     public final Integer SQL_EXCEPTION = -2;
     public final Integer CLOSE_ZK_ERROR = -3;
     public final Integer CLOSE_DB_ERROR = -4;
+    private final String TOTAL_AMOUNT_ROOT = "/settlement"
 
     public final String CHANGE_RATE_JSON = "{\"RMB\":\"2.0\", \"USD\":\"12.0\",\"JPY\":\"0.15\",\"EUR\":\"9.0\"}";
 
@@ -55,6 +56,17 @@ public class Checker implements Watcher{
         this.mysql_hostPort = mysql_hostPort;
         this.logger = logger;
     }
+
+    private void updateTotalAmount(String initiator, Float totalPaid) {
+        try{
+            Float old_amount = Float.valueOf(new String(zk.getData(TOTAL_AMOUNT_ROOT+"/total_transaction_amount/"+initiator, false, new Stat())));
+            Float new_amount = old_amount + totalPaid;
+            zk.setData(TOTAL_AMOUNT_ROOT+"/total_transaction_amount/"+initiator, String.valueOf(new_amount).getBytes(), -1);
+        } catch (Exception e) {
+            logger.error(e.getMessage());
+        }
+    }
+
 
     public void startZK() throws IOException, SQLException, ClassNotFoundException {
         zk = new ZooKeeper(hostPort, 15000, this);
@@ -186,9 +198,11 @@ public class Checker implements Watcher{
                 }
             }
             // Successfully processed all the goods in the order, commit, note that totalPaidUnion is changed to totalPaid
-            new_id = insertResult(order.user_id, order.initiator, 1, totalPaidUnion/currencyRate.getRate(order.initiator));
+            Float total_paid = totalPaidUnion/currencyRate.getRate(order.initiator);
+            new_id = insertResult(order.user_id, order.initiator, 1, total_paid);
             rs_inserted = true;
             db_connection.commit();
+            updateTotalAmount(order.initiator, total_paid);
             committed = true;
             return new_id;
         }

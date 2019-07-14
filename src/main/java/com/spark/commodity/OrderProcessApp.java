@@ -7,6 +7,7 @@ import com.spark.dom.Item;
 import com.spark.dom.Order;
 import net.sf.json.JSONObject;
 import org.apache.kafka.common.serialization.IntegerDeserializer;
+import org.apache.log4j.Logger;
 import org.apache.spark.SparkConf;
 import org.apache.spark.TaskContext;
 import org.apache.spark.api.java.function.*;
@@ -17,8 +18,6 @@ import org.apache.spark.streaming.kafka010.*;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.serialization.StringDeserializer;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 
 /**
@@ -26,7 +25,7 @@ import org.slf4j.LoggerFactory;
  *  param1:
  */
 public class OrderProcessApp {
-    private static final Logger logger = LoggerFactory.getLogger(OrderProcessApp.class);
+    private static final Logger logger = Logger.getLogger(OrderProcessApp.class);
 
     public static void main(String[] argv) throws Exception {
         // configure Kafka
@@ -50,8 +49,8 @@ public class OrderProcessApp {
         String mysqlJdbc = "jdbc:mysql://localhost:3306/ds_settlement_system"; // local parameter
 
         // DEBUG info -
-        logger.info("Zookeeper config: {}", zkPorts);
-        logger.info("MySQL connection config: {}", mysqlJdbc);
+        logger.info("Zookeeper config: {}" + zkPorts);
+        logger.info("MySQL connection config: {}" + mysqlJdbc);
 
         // Setup Spark Driver
         SparkConf conf = new SparkConf()
@@ -99,9 +98,11 @@ public class OrderProcessApp {
 
                 logger.info(rid + " - " + order.toString());
                 String r = checker.check(rid, order);
-                checker.notifySpring(rid, r);
-                if (r == "-1")
+                if (r.equals(Checker.ERROR_OCCURRED))
                     logger.info("ERROR checking order " + order.toString() + ", error code: " + r);
+                r =checker.notifySpring(rid, r);
+                if (!r.equals(Checker.SUCCESS_PROCESSED))
+                    logger.info("ERROR notifying spring, error code: " + r);
                 checker.close();
                 logger.info(r + " - " + order.toString());
             });

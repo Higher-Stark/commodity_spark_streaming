@@ -3,7 +3,10 @@ package com.spark.commodity;
 import com.spark.dom.CurrencyRate;
 import com.spark.dom.Item;
 import com.spark.dom.Order;
+<<<<<<< HEAD
 import com.zaxxer.hikari.HikariDataSource;
+=======
+>>>>>>> 3d4f4f3723ac0bb88485a27b9a49f0292f3fc76a
 import net.sf.json.JSONObject;
 import org.slf4j.Logger;
 import org.apache.spark.sql.execution.SQLExecution;
@@ -129,11 +132,19 @@ public class Checker implements Watcher{
                 logger.error("zNode /settlement/change_rate not exists!");
             }
             else
+<<<<<<< HEAD
                 logger.error("KeeperException !" + e.getMessage());
             return ERROR_OCCURRED;
         }
         catch (InterruptedException e) {
             logger.error("Server transaction interrupted!" + e.getMessage());
+=======
+                logger.info("KeeperException !" + e.getMessage());
+            return ERROR_OCCURRED;
+        }
+        catch (InterruptedException e) {
+            logger.info("Server transaction interrupted!" + e.getMessage());
+>>>>>>> 3d4f4f3723ac0bb88485a27b9a49f0292f3fc76a
             return ERROR_OCCURRED;
         }
 
@@ -192,7 +203,7 @@ public class Checker implements Watcher{
             e.printStackTrace();
             try{
                 if (rs_inserted)
-                db_connection.rollback();
+                    db_connection.rollback();
             }
             catch (SQLException e1) {
                 logger.error(e1.getMessage());

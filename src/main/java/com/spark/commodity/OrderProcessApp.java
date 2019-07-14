@@ -59,8 +59,8 @@ public class OrderProcessApp {
         // String mysqlJdbc = "jdbc:mysql://localhost:3306/ds_settlement_system"; // local parameter
 
         // DEBUG info -
-        logger.info("Zookeeper config: {}", zkPorts);
-        logger.info("MySQL connection config: {}", mysqlJdbc);
+        logger.info("Zookeeper config: {}" + zkPorts);
+        logger.info("MySQL connection config: {}" + mysqlJdbc);
 
         // Setup Hikari Connection Pool
         Properties props = new Properties();
@@ -132,9 +132,11 @@ public class OrderProcessApp {
                 lock.lock();
                 String r = checker.check(rid, order);
                 lock.unlock();
-                checker.notifySpring(rid, r);
-                if (r == "-1")
-                    logger.error("ERROR checking order " + order.toString() + ", error code: " + r);
+                if (r.equals(Checker.ERROR_OCCURRED))
+                    logger.info("ERROR checking order " + order.toString() + ", error code: " + r);
+                r =checker.notifySpring(rid, r);
+                if (!r.equals(Checker.SUCCESS_PROCESSED))
+                    logger.info("ERROR notifying spring, error code: " + r);
                 checker.close();
                 logger.info(r + " - " + order.toString());
             });

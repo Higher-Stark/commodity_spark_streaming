@@ -3,7 +3,6 @@ package com.spark.commodity;
 import com.spark.dom.CurrencyRate;
 import com.spark.dom.Item;
 import com.spark.dom.Order;
-import com.spark.dom.ZkLock;
 import net.sf.json.JSONObject;
 import org.apache.log4j.Logger;
 import org.apache.spark.sql.execution.SQLExecution;
@@ -28,11 +27,14 @@ import static org.apache.zookeeper.ZooDefs.Ids.OPEN_ACL_UNSAFE;
  * to process each order
  */
 public class Checker implements Watcher{
-    public final Integer ORDER_SUCCEED = 0;
-    public final Integer ORDER_FAILED = -1;
-    public final Integer SQL_EXCEPTION = -2;
-    public final Integer CLOSE_ZK_ERROR = -3;
-    public final Integer CLOSE_DB_ERROR = -4;
+    public final static String SUCCESS_PROCESSED = "0";
+    private final static String CLOSE_ZK_ERROR = "-1";
+    private final static String CLOSE_DB_ERROR = "-2";
+    private final static String ZK_NO_ZNODE = "-3";
+    private final static String ZK_EXCEPTION = "-4";
+    public final static String ERROR_OCCURRED = "-1";
+
+    private final static String TOTAL_AMOUNT_ROOT = "/settlement";
 
     public final String CHANGE_RATE_JSON = "{\"RMB\":\"2.0\", \"USD\":\"12.0\",\"JPY\":\"0.15\",\"EUR\":\"9.0\"}";
 
@@ -64,31 +66,38 @@ public class Checker implements Watcher{
         db_connection.setAutoCommit(false);  // Turn on Transaction
     }
 
+
     public void process(WatchedEvent e) {
         System.out.println(e);
     }
 
-    public int notifySpring(String rid, String result_id) {
-        //TODO: update ZK node <rid> using value <result_id>
+    public String notifySpring(String rid, String result_id) {
         try {
+            // update ZK node <rid> using value <result_id>
             zk.setData("/spring/" + rid, result_id.getBytes(), -1);
+            // update ZK node <total_transaction_amount>
+            return SUCCESS_PROCESSED;
         }
         catch (KeeperException e) {
             if (e.code() == KeeperException.Code.NONODE)
                 logger.error("No node /spring/" + rid + " failed!");
             else
                 logger.error("KeeperException " + e.getMessage());
-            return -1;
+            return ZK_NO_ZNODE;
         }
-        catch (InterruptedException e) {
+        catch (Exception e) {
+            return ZK_EXCEPTION;
+        }
+    }
+
+    private void updateTotalAmount(String initiator, Float totalPaid) {
+        try{
+            Float old_amount = Float.valueOf(new String(zk.getData(TOTAL_AMOUNT_ROOT+"/total_transaction_amount", false, new Stat())));
+            Float new_amount = old_amount + totalPaid;
+            zk.setData(TOTAL_AMOUNT_ROOT+"/total_transaction_amount", String.valueOf(new_amount).getBytes(), -1);
+        } catch (Exception e) {
             logger.error(e.getMessage());
-            return -1;
         }
-        catch (IllegalArgumentException e) {
-            logger.error(e.getMessage());
-            return -1;
-        }
-        return 0;
     }
 
     private String insertResult(String user_id, String initiator, Integer success, Float totalPaid) throws SQLException{
@@ -119,7 +128,6 @@ public class Checker implements Watcher{
     public String check(String rid, Order order) {
         Collections.sort(order.items);
         Float totalPaidUnion = Float.valueOf(0);   //订单总价,以通用货币为单位
-        Boolean committed = false;
         String sql, new_id = "";
 
         // TODO: request on-time exchange rate json instead of CHANGE_RATE_JSON
@@ -133,11 +141,11 @@ public class Checker implements Watcher{
             }
             else
                 logger.info("KeeperException !" + e.getMessage());
-            return "-1";
+            return ERROR_OCCURRED;
         }
         catch (InterruptedException e) {
             logger.info("Server transaction interrupted!" + e.getMessage());
-            return "-1";
+            return ERROR_OCCURRED;
         }
 
         CurrencyRate currencyRate = new CurrencyRate(JSONObject.fromObject(new String(change_rate)));
@@ -161,7 +169,6 @@ public class Checker implements Watcher{
                     new_id = insertResult(order.user_id, order.initiator, 0, Float.valueOf(0));
                     rs_inserted = true;
                     db_connection.commit();
-                    committed = true;
                     return new_id;
                 }
 
@@ -176,7 +183,6 @@ public class Checker implements Watcher{
                     new_id = insertResult(order.user_id, order.initiator, 0, Float.valueOf(0));
                     rs_inserted = true;
                     db_connection.commit();
-                    committed = true;
                     return new_id;
                 } else {
                     remain -= i.number;
@@ -186,10 +192,11 @@ public class Checker implements Watcher{
                 }
             }
             // Successfully processed all the goods in the order, commit, note that totalPaidUnion is changed to totalPaid
-            new_id = insertResult(order.user_id, order.initiator, 1, totalPaidUnion/currencyRate.getRate(order.initiator));
+            Float totalPaid = totalPaidUnion/currencyRate.getRate(order.initiator);
+            new_id = insertResult(order.user_id, order.initiator, 1, totalPaid);
             rs_inserted = true;
             db_connection.commit();
-            committed = true;
+            updateTotalAmount(order.initiator, totalPaid);
             return new_id;
         }
         catch (SQLException e) {// exception occurs, cancel the order
@@ -197,26 +204,25 @@ public class Checker implements Watcher{
             e.printStackTrace();
             try{
                 if (rs_inserted)
-                db_connection.rollback();
+                    db_connection.rollback();
             }
             catch (SQLException e1) {
                 logger.error(e1.getMessage());
                 e1.printStackTrace();
             }
             finally {
-                return "-1";
+                return ERROR_OCCURRED;
             }
         }
     }
 
-    public int close() {
-        int ret = 0;
+    public String close() {
         try {
             zk.close();
         }
         catch (InterruptedException e) {
             logger.error(e.getMessage());
-            ret = CLOSE_ZK_ERROR;
+            return CLOSE_ZK_ERROR;
         }
         try {
             db_connection.close();
@@ -224,8 +230,8 @@ public class Checker implements Watcher{
         catch (SQLException ex) {
             logger.error(ex.getMessage());
             ex.printStackTrace();
-            ret = CLOSE_DB_ERROR;
+            return CLOSE_DB_ERROR;
         }
-        return ret;
+        return SUCCESS_PROCESSED;
     }
 }

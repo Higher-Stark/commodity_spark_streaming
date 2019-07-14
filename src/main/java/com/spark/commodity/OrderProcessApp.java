@@ -5,7 +5,6 @@ import java.util.*;
 
 import com.spark.dom.Item;
 import com.spark.dom.Order;
-import com.spark.dom.ZkLock;
 import net.sf.json.JSONObject;
 import org.apache.kafka.common.serialization.IntegerDeserializer;
 import org.apache.log4j.Logger;
@@ -31,8 +30,8 @@ public class OrderProcessApp {
     public static void main(String[] argv) throws Exception {
         // configure Kafka
         Map<String, Object> kafkaParams = new HashMap<>();
-        kafkaParams.put("bootstrap.servers", "10.0.0.24:9092,10.0.0.23:9092,10.0.0.48:9092,10.0.0.63:9092"); // build parameter
-//        kafkaParams.put("bootstrap.servers", "localhost:9092"); // local parameter
+//        kafkaParams.put("bootstrap.servers", "10.0.0.24:9092,10.0.0.23:9092,10.0.0.48:9092,10.0.0.63:9092"); // build parameter
+        kafkaParams.put("bootstrap.servers", "localhost:9092"); // local parameter
         kafkaParams.put("key.deserializer", StringDeserializer.class);
         kafkaParams.put("value.deserializer", StringDeserializer.class);
         kafkaParams.put("group.id", "1");
@@ -43,17 +42,21 @@ public class OrderProcessApp {
         Set<String> topics = new HashSet<String>(Arrays.asList("oltest"));
 
         // Configure mysql and zookeeper
-//        String zkPorts = "0.0.0.0:2181";  // local parameter
-        String zkPorts = "10.0.0.24:2181,10.0.0.23:2181,10.0.0.48:2181,10.0.0.63:2181"; // build parameter
+        String zkPorts = "0.0.0.0:2181";  // local parameter
+//        String zkPorts = "10.0.0.24:2181,10.0.0.23:2181,10.0.0.48:2181,10.0.0.63:2181"; // build parameter
         // TODO: MySQL database?
-        String mysqlJdbc = "jdbc:mysql://10.0.0.63:3306/ds_settlement_system"; // build parameter
-//        String mysqlJdbc = "jdbc:mysql://localhost:3306/ds_settlement_system"; // local parameter
+//        String mysqlJdbc = "jdbc:mysql://10.0.0.63:3306/ds_settlement_system"; // build parameter
+        String mysqlJdbc = "jdbc:mysql://localhost:3306/ds_settlement_system"; // local parameter
+
+        // DEBUG info -
+        logger.info("Zookeeper config: {}" + zkPorts);
+        logger.info("MySQL connection config: {}" + mysqlJdbc);
 
         // Setup Spark Driver
         SparkConf conf = new SparkConf()
                 .setAppName("CommodityApp")
-//                .setMaster("local[*]"); // local parameter
-                .setMaster("spark://10.0.0.63:7077"); // build parameter
+                .setMaster("local[*]"); // local parameter
+//                .setMaster("spark://10.0.0.63:7077"); // build parameter
         JavaStreamingContext jssc = new JavaStreamingContext(conf, new Duration(3000));
 
         // Get input stream from Kafka
@@ -93,14 +96,13 @@ public class OrderProcessApp {
                     order.items.add(it);
                 }
 
-                ZkLock lock = new ZkLock(zkPorts, "biglock");
                 logger.info(rid + " - " + order.toString());
-                lock.lock();
                 String r = checker.check(rid, order);
-                lock.unlock();
-                checker.notifySpring(rid, r);
-                if (r == "-1")
-                    logger.info("ERROR checking order " + order.toString() + ", error code: " + r);
+                if (r.equals(Checker.ERROR_OCCURRED))
+                    logger.error("ERROR checking order " + order.toString() + ", error code: " + r);
+                r =checker.notifySpring(rid, r);
+                if (!r.equals(Checker.SUCCESS_PROCESSED))
+                    logger.error("ERROR notifying spring, error code: " + r);
                 checker.close();
                 logger.info(r + " - " + order.toString());
             });

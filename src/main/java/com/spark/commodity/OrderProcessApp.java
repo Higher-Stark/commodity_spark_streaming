@@ -7,6 +7,7 @@ import com.spark.dom.Item;
 import com.spark.dom.Order;
 import net.sf.json.JSONObject;
 import org.apache.kafka.common.serialization.IntegerDeserializer;
+import org.apache.log4j.Logger;
 import org.apache.spark.SparkConf;
 import org.apache.spark.TaskContext;
 import org.apache.spark.api.java.function.*;
@@ -17,8 +18,6 @@ import org.apache.spark.streaming.kafka010.*;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.serialization.StringDeserializer;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 
 /**
@@ -26,13 +25,13 @@ import org.slf4j.LoggerFactory;
  *  param1:
  */
 public class OrderProcessApp {
-    private static final Logger logger = LoggerFactory.getLogger(OrderProcessApp.class);
+    private static Logger logger = Logger.getLogger(OrderProcessApp.class.getName());
 
     public static void main(String[] argv) throws Exception {
         // configure Kafka
         Map<String, Object> kafkaParams = new HashMap<>();
-//        kafkaParams.put("bootstrap.servers", "10.0.0.24:9092,10.0.0.23:9092,10.0.0.48:9092,10.0.0.63:9092"); // build parameter
-        kafkaParams.put("bootstrap.servers", "localhost:9092"); // local parameter
+        kafkaParams.put("bootstrap.servers", "10.0.0.24:9092,10.0.0.23:9092,10.0.0.48:9092,10.0.0.63:9092"); // build parameter
+//        kafkaParams.put("bootstrap.servers", "localhost:9092"); // local parameter
         kafkaParams.put("key.deserializer", StringDeserializer.class);
         kafkaParams.put("value.deserializer", StringDeserializer.class);
         kafkaParams.put("group.id", "1");
@@ -43,21 +42,21 @@ public class OrderProcessApp {
         Set<String> topics = new HashSet<String>(Arrays.asList("oltest"));
 
         // Configure mysql and zookeeper
-        String zkPorts = "0.0.0.0:2181";  // local parameter
-//        String zkPorts = "10.0.0.24:2181,10.0.0.23:2181,10.0.0.48:2181,10.0.0.63:2181"; // build parameter
+//        String zkPorts = "0.0.0.0:2181";  // local parameter
+        String zkPorts = "10.0.0.24:2181,10.0.0.23:2181,10.0.0.48:2181,10.0.0.63:2181"; // build parameter
         // TODO: MySQL database?
-//        String mysqlJdbc = "jdbc:mysql://10.0.0.63:3306/ds_settlement_system"; // build parameter
-        String mysqlJdbc = "jdbc:mysql://localhost:3306/ds_settlement_system"; // local parameter
+        String mysqlJdbc = "jdbc:mysql://10.0.0.63:3306/ds_settlement_system"; // build parameter
+//        String mysqlJdbc = "jdbc:mysql://localhost:3306/ds_settlement_system"; // local parameter
 
         // DEBUG info -
-        logger.info("Zookeeper config: {}", zkPorts);
-        logger.info("MySQL connection config: {}", mysqlJdbc);
+        logger.info("Zookeeper config: {"+ zkPorts+"}");
+        logger.info("MySQL connection config: {"+ mysqlJdbc+"}");
 
         // Setup Spark Driver
         SparkConf conf = new SparkConf()
                 .setAppName("CommodityApp")
-                .setMaster("local[*]"); // local parameter
-//                .setMaster("spark://10.0.0.63:7077"); // build parameter
+//                .setMaster("local[*]"); // local parameter
+                .setMaster("spark://10.0.0.63:7077"); // build parameter
         JavaStreamingContext jssc = new JavaStreamingContext(conf, new Duration(3000));
 
         // Get input stream from Kafka
@@ -74,7 +73,7 @@ public class OrderProcessApp {
             rdd.foreach(record -> {
                 Checker checker = new Checker(zkPorts, mysqlJdbc, logger);
                 try {
-                    checker.startZK();
+                    checker.start();
                 }
                 catch (Exception e){
                     System.err.println(e.getMessage());
@@ -86,6 +85,7 @@ public class OrderProcessApp {
                 Order order = new Order();
                 JSONObject order_json = JSONObject.fromObject(record.value());
                 logger.info(rid + order_json);// log
+                System.out.println(rid + order_json);
                 order.user_id = order_json.getString("user_id");
                 order.initiator = order_json.getString("initiator");
                 order.time = order_json.getLong("time");
@@ -98,12 +98,17 @@ public class OrderProcessApp {
                 }
 
                 logger.info(rid + " - " + order.toString());
+                System.out.println(rid + " - " + order.toString());
                 String r = checker.check(rid, order);
                 checker.notifySpring(rid, r);
-                if (r == "-1")
-                    logger.info("ERROR checking order " + order.toString() + ", error code: " + r);
-                checker.close();
+                if (r.equals("-1")){
+                    logger.error("ERROR checking order " + order.toString() + ", error code: " + r);
+                    System.out.println("ERROR checking order " + order.toString() + ", error code: " + r);
+                }
                 logger.info(r + " - " + order.toString());
+                System.out.println(r + " - " + order.toString());
+
+                checker.close();
             });
 
             ((CanCommitOffsets)input.inputDStream()).commitAsync(offsetRanges);

@@ -5,6 +5,7 @@ import java.util.*;
 
 import com.spark.dom.Item;
 import com.spark.dom.Order;
+import com.spark.dom.ZkLock;
 import net.sf.json.JSONObject;
 import org.apache.kafka.common.serialization.IntegerDeserializer;
 import org.apache.log4j.BasicConfigurator;
@@ -41,7 +42,7 @@ public class OrderProcessApp {
         // configure Kafka
         Map<String, Object> kafkaParams = new HashMap<>();
         kafkaParams.put("bootstrap.servers", "10.0.0.24:9092,10.0.0.23:9092,10.0.0.48:9092,10.0.0.63:9092"); // build parameter
-        // kafkaParams.put("bootstrap.servers", "localhost:9092"); // local parameter
+//        kafkaParams.put("bootstrap.servers", "localhost:9092"); // local parameter
         kafkaParams.put("key.deserializer", StringDeserializer.class);
         kafkaParams.put("value.deserializer", StringDeserializer.class);
         kafkaParams.put("group.id", "1");
@@ -85,7 +86,7 @@ public class OrderProcessApp {
         // Setup Spark Driver
         SparkConf conf = new SparkConf()
                 .setAppName("CommodityApp")
-                // .setMaster("local[*]"); // local parameter
+//                .setMaster("local[*]"); // local parameter
                 .setMaster("spark://10.0.0.63:7077"); // build parameter
         JavaStreamingContext jssc = new JavaStreamingContext(conf, new Duration(3000));
 
@@ -106,7 +107,7 @@ public class OrderProcessApp {
                     checker.startZK(dataSrc);
                 }
                 catch (Exception e){
-                    System.err.println(e.getMessage());
+                    logger.error(e.getMessage());
                     e.printStackTrace();
                     return;
                 }
@@ -126,11 +127,14 @@ public class OrderProcessApp {
                     order.items.add(it);
                 }
 
+                ZkLock lock = new ZkLock(zkPorts, "biglock");
                 logger.info(rid + " - " + order.toString());
+                lock.lock();
                 String r = checker.check(rid, order);
+                lock.unlock();
                 checker.notifySpring(rid, r);
                 if (r == "-1")
-                    logger.info("ERROR checking order " + order.toString() + ", error code: " + r);
+                    logger.error("ERROR checking order " + order.toString() + ", error code: " + r);
                 checker.close();
                 logger.info(r + " - " + order.toString());
             });

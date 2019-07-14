@@ -5,22 +5,18 @@ import com.spark.dom.Item;
 import com.spark.dom.Order;
 import com.zaxxer.hikari.HikariDataSource;
 import net.sf.json.JSONObject;
+import org.slf4j.Logger;
 import org.apache.spark.sql.execution.SQLExecution;
 import org.apache.zookeeper.*;
 import org.apache.zookeeper.data.Stat;
 
 import java.io.IOException;
 import java.sql.Connection;
-import java.sql.DriverManager;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.Collections;
-import java.util.HashMap;
-import java.util.Map;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import static org.apache.zookeeper.ZooDefs.Ids.OPEN_ACL_UNSAFE;
 
 /*
@@ -121,14 +117,14 @@ public class Checker implements Watcher{
         }
         catch (KeeperException e) {
             if (e.code() == KeeperException.Code.NONODE) {
-                logger.info("zNode /settlement/change_rate not exists!");
+                logger.error("zNode /settlement/change_rate not exists!");
             }
             else
-                logger.info("KeeperException !" + e.getMessage());
+                logger.error("KeeperException !" + e.getMessage());
             return "-1";
         }
         catch (InterruptedException e) {
-            logger.info("Server transaction interrupted!" + e.getMessage());
+            logger.error("Server transaction interrupted!" + e.getMessage());
             return "-1";
         }
 
@@ -141,7 +137,6 @@ public class Checker implements Watcher{
             ResultSet rs;
 
             // 暂时存储每个商品的余量
-            Map<String, Integer> storage = new HashMap<>();
             for (Item i : order.items) {
                 sql = "SELECT * FROM commodity WHERE id = " + i.id + " ORDER BY id ASC";
                 rs = smt.executeQuery(sql);
